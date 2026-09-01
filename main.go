@@ -38,9 +38,9 @@ func main() {
 
 	toCopy, toUpdate, toDelete := CompareScans(rootTable, dstTable)
 
-	fmt.Println("toCopy:", toCopy)
-	fmt.Println("toUpdate:", toUpdate)
-	fmt.Println("toDelete:", toDelete)
+	if err := Sync(rootPath, dstPath, toCopy, toUpdate, toDelete); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func ListFiles(rootPath string) ([]string, error) {
@@ -157,4 +157,80 @@ func CompareScans(source, dest map[string]string) (toCopy, toUpdate, toDelete []
 	}
 
 	return toCopy, toUpdate, toDelete
+}
+
+func Sync(
+	rootPath string,
+	dstPath string,
+	toCopy []string,
+	toUpdate []string,
+	toDelete []string,
+) error {
+	var (
+		copyCount   = 0
+		updateCount = 0
+		deleteCount = 0
+	)
+
+	for _, file := range toCopy {
+		fmt.Printf("Copying %s to %s\n", file, dstPath)
+		if err := CopyFile(rootPath+"/"+file, dstPath+"/"+file); err != nil {
+			return err
+		}
+		copyCount++
+	}
+
+	for _, file := range toUpdate {
+		fmt.Printf("Updating %s to %s\n", file, dstPath)
+		if err := CopyFile(rootPath+"/"+file, dstPath+"/"+file); err != nil {
+			return err
+		}
+		updateCount++
+	}
+
+	for _, file := range toDelete {
+		fmt.Printf("Deleting %s to %s\n", file, dstPath)
+		if err := DeleteFile(dstPath + "/" + file); err != nil {
+			return err
+		}
+		deleteCount++
+	}
+
+	fmt.Printf("Copied %d copied files\n", copyCount)
+	fmt.Printf("Updated %d copied files\n", updateCount)
+	fmt.Printf("Deleted %d copied files\n", deleteCount)
+
+	return nil
+}
+
+func CopyFile(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+
+	sFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("error opening file: %w", err)
+	}
+	defer sFile.Close()
+
+	dstFile, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, sFile); err != nil {
+		return fmt.Errorf("error copying file: %w", err)
+	}
+
+	return nil
+}
+
+func DeleteFile(path string) error {
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("error deleting file: %w", err)
+	}
+
+	return nil
 }

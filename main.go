@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/fatih/color"
+	"github.com/schollz/progressbar/v3"
 )
 
 type FileHash struct {
@@ -26,15 +29,7 @@ func main() {
 	dstPath := os.Args[2]
 
 	rootTable := prepareFileTable(rootPath)
-	fmt.Println("rootPath:", rootPath)
-	for file, hash := range rootTable {
-		fmt.Println(file, hash)
-	}
 	dstTable := prepareFileTable(dstPath)
-	fmt.Println("dstPath:", dstPath)
-	for file, hash := range dstTable {
-		fmt.Println(file, hash)
-	}
 
 	toCopy, toUpdate, toDelete := CompareScans(rootTable, dstTable)
 
@@ -166,39 +161,52 @@ func Sync(
 	toUpdate []string,
 	toDelete []string,
 ) error {
-	var (
-		copyCount   = 0
-		updateCount = 0
-		deleteCount = 0
-	)
+	total := len(toCopy) + len(toUpdate) + len(toDelete)
+
+	fmt.Println("Синхронизация...")
+	bar := progressbar.Default(int64(total))
+
+	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
+	red := color.New(color.FgRed)
+
+	type logLine struct {
+		c    *color.Color
+		text string
+	}
+	logs := make([]logLine, 0, total)
 
 	for _, file := range toCopy {
-		fmt.Printf("Copying %s to %s\n", file, dstPath)
-		if err := CopyFile(rootPath+"/"+file, dstPath+"/"+file); err != nil {
+		if err := CopyFile(filepath.Join(rootPath, file), filepath.Join(dstPath, file)); err != nil {
 			return err
 		}
-		copyCount++
+		logs = append(logs, logLine{green, fmt.Sprintf("[КОПИРОВАНИЕ] %s", file)})
+		bar.Add(1)
 	}
 
 	for _, file := range toUpdate {
-		fmt.Printf("Updating %s to %s\n", file, dstPath)
-		if err := CopyFile(rootPath+"/"+file, dstPath+"/"+file); err != nil {
+		if err := CopyFile(filepath.Join(rootPath, file), filepath.Join(dstPath, file)); err != nil {
 			return err
 		}
-		updateCount++
+		logs = append(logs, logLine{yellow, fmt.Sprintf("[ОБНОВЛЕНИЕ] %s", file)})
+		bar.Add(1)
 	}
 
 	for _, file := range toDelete {
-		fmt.Printf("Deleting %s to %s\n", file, dstPath)
-		if err := DeleteFile(dstPath + "/" + file); err != nil {
+		if err := DeleteFile(filepath.Join(dstPath, file)); err != nil {
 			return err
 		}
-		deleteCount++
+		logs = append(logs, logLine{red, fmt.Sprintf("[УДАЛЕНИЕ] %s", file)})
+		bar.Add(1)
 	}
 
-	fmt.Printf("Copied %d copied files\n", copyCount)
-	fmt.Printf("Updated %d copied files\n", updateCount)
-	fmt.Printf("Deleted %d copied files\n", deleteCount)
+	fmt.Println()
+	for _, l := range logs {
+		l.c.Println(l.text)
+	}
+
+	fmt.Println()
+	fmt.Println("Синхронизация завершена!")
 
 	return nil
 }

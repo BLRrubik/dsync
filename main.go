@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func main() {
@@ -33,7 +32,12 @@ func ListFiles(rootPath string) ([]string, error) {
 			return err
 		}
 		if !d.IsDir() {
-			files = append(files, strings.TrimPrefix(path, rootPath+"/"))
+			relPath, err := filepath.Rel(rootPath, path)
+			if err != nil {
+				return fmt.Errorf("could not determine relative path: %w", err)
+			}
+
+			files = append(files, relPath)
 		}
 
 		return nil

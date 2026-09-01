@@ -9,7 +9,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+type FileHash struct {
+	Path string
+	Hash string
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -23,13 +29,41 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for _, file := range files {
-		hash, err := HashFile(rootPath + "/" + file)
-		if err != nil {
-			log.Fatal(err)
-		}
+	var (
+		tasks   = make(chan string)
+		results = make(chan FileHash)
+		wg      = &sync.WaitGroup{}
+	)
 
-		fmt.Println(file, hash)
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for path := range tasks {
+				hash, err := HashFile(path)
+				if err != nil {
+					continue
+				}
+
+				results <- FileHash{Path: path, Hash: hash}
+			}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for _, file := range files {
+		tasks <- file
+	}
+
+	close(tasks)
+
+	for data := range results {
+		fmt.Println(data.Path, data.Hash)
 	}
 }
 
@@ -40,12 +74,7 @@ func ListFiles(rootPath string) ([]string, error) {
 			return err
 		}
 		if !d.IsDir() {
-			relPath, err := filepath.Rel(rootPath, path)
-			if err != nil {
-				return fmt.Errorf("could not determine relative path: %w", err)
-			}
-
-			files = append(files, relPath)
+			files = append(files, path)
 		}
 
 		return nil

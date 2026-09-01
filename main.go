@@ -207,6 +207,7 @@ func Sync(
 
 	fmt.Println()
 	fmt.Println("Синхронизация завершена!")
+	fmt.Printf("Скопировано: %d, Обновлено: %d, Удалено: %d\n", len(toCopy), len(toUpdate), len(toDelete))
 
 	return nil
 }

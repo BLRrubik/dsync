@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -21,7 +24,12 @@ func main() {
 	}
 
 	for _, file := range files {
-		fmt.Println(file)
+		hash, err := HashFile(rootPath + "/" + file)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println(file, hash)
 	}
 }
 
@@ -46,4 +54,19 @@ func ListFiles(rootPath string) ([]string, error) {
 	}
 
 	return files, nil
+}
+
+func HashFile(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error opening file: %w", err)
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err = io.Copy(hasher, f); err != nil {
+		return "", fmt.Errorf("error hashing file: %w", err)
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

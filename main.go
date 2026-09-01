@@ -18,53 +18,29 @@ type FileHash struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 3 {
 		fmt.Println("invalid args")
 	}
 
 	rootPath := os.Args[1]
+	dstPath := os.Args[2]
 
-	files, err := ListFiles(rootPath)
-	if err != nil {
-		log.Fatal(err)
+	rootTable := prepareFileTable(rootPath)
+	fmt.Println("rootPath:", rootPath)
+	for file, hash := range rootTable {
+		fmt.Println(file, hash)
+	}
+	dstTable := prepareFileTable(dstPath)
+	fmt.Println("dstPath:", dstPath)
+	for file, hash := range dstTable {
+		fmt.Println(file, hash)
 	}
 
-	var (
-		tasks   = make(chan string)
-		results = make(chan FileHash)
-		wg      = &sync.WaitGroup{}
-	)
+	toCopy, toUpdate, toDelete := CompareScans(rootTable, dstTable)
 
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for path := range tasks {
-				hash, err := HashFile(path)
-				if err != nil {
-					continue
-				}
-
-				results <- FileHash{Path: path, Hash: hash}
-			}
-		}()
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	for _, file := range files {
-		tasks <- file
-	}
-
-	close(tasks)
-
-	for data := range results {
-		fmt.Println(data.Path, data.Hash)
-	}
+	fmt.Println("toCopy:", toCopy)
+	fmt.Println("toUpdate:", toUpdate)
+	fmt.Println("toDelete:", toDelete)
 }
 
 func ListFiles(rootPath string) ([]string, error) {
@@ -74,7 +50,12 @@ func ListFiles(rootPath string) ([]string, error) {
 			return err
 		}
 		if !d.IsDir() {
-			files = append(files, path)
+			relPath, err := filepath.Rel(rootPath, path)
+			if err != nil {
+				return err
+			}
+
+			files = append(files, relPath)
 		}
 
 		return nil
@@ -83,6 +64,60 @@ func ListFiles(rootPath string) ([]string, error) {
 	}
 
 	return files, nil
+}
+
+func prepareFileTable(path string) map[string]string {
+	files, err := ListFiles(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	filesTable := make(map[string]string)
+
+	for data := range processHash(path, files) {
+		filesTable[data.Path] = data.Hash
+	}
+
+	return filesTable
+}
+
+func processHash(rootPath string, files []string) chan FileHash {
+	var (
+		tasks   = make(chan string)
+		results = make(chan FileHash)
+		wg      = &sync.WaitGroup{}
+	)
+
+	go func() {
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				for path := range tasks {
+					hash, err := HashFile(rootPath + "/" + path)
+					if err != nil {
+						continue
+					}
+
+					results <- FileHash{Path: path, Hash: hash}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		for _, file := range files {
+			tasks <- file
+		}
+
+		close(tasks)
+	}()
+
+	return results
 }
 
 func HashFile(filePath string) (string, error) {
@@ -98,4 +133,28 @@ func HashFile(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func CompareScans(source, dest map[string]string) (toCopy, toUpdate, toDelete []string) {
+	checkedFiles := make(map[string]struct{})
+
+	for file, hash := range source {
+		if destHash, ok := dest[file]; !ok {
+			toCopy = append(toCopy, file)
+		} else if hash != destHash {
+			toUpdate = append(toUpdate, file)
+		}
+
+		checkedFiles[file] = struct{}{}
+	}
+
+	for file := range dest {
+		if _, ok := checkedFiles[file]; ok {
+			continue
+		}
+
+		toDelete = append(toDelete, file)
+	}
+
+	return toCopy, toUpdate, toDelete
 }
